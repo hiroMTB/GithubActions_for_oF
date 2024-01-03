@@ -4,9 +4,9 @@ run-name: Build oF + testApp
 # make the action not run on the local repo if the branch is also in a pull request to OF/OF
 on:
   push:
-    branches: [ master ]
-    #tags:
-    #- 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+    # branches: [ master ]
+    tags:
+    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
