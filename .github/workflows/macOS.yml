@@ -1,0 +1,111 @@
+name: build-macos
+run-name: Build oF + testApp
+
+# make the action not run on the local repo if the branch is also in a pull request to OF/OF
+on:
+  push:
+    branches: [ main ]
+    #tags:
+    #- 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-osx:
+    runs-on: macos-12
+    strategy:
+      matrix:
+        cfg:
+          - {target: osx, opt: "xcode"}
+          # - {target: osx, opt: "makefiles"}
+    env:
+      TARGET: ${{matrix.cfg.target}}
+      OPT: ${{matrix.cfg.opt}}
+    steps:        
+      - name: Checkout GithubActions_for_oF repo
+        uses: actions/checkout@v4
+        with:
+          path: GithubActions_for_oF
+          
+      - name: Checkout oF
+        uses: actions/checkout@v4
+        with:
+          repository: hiroMTB/openFrameworks
+          ref: expose-ofNode-position-to-public-latestMaster
+          path: of
+          submodules: true
+
+      - name: Download libs
+        # continue-on-error: true
+        run: ./of/scripts/$TARGET/download_libs.sh
+
+
+      # Uncomment this section to test oF's empty example
+      # emptyExample project
+      # - name: Build emptyExample
+      #   run: ./of/scripts/ci/$TARGET/build.sh $OPT;
+      #   env:
+      #     DEVELOPER_DIR: "/Applications/Xcode.app/Contents/Developer"
+      #     SDKROOT: "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+      # # Upload executable binaries to GitHub
+      # - name: Uploading artifacts (emptyExampleApp)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: emptyExampleApp
+      #     path: ./of/scripts/templates/osx/bin
+
+
+      # Generate Xcdoe project (NOTICE: projectGenerator is included in GithubActions_for_oF repo to reduce processing time)
+      - name: Create project files for Xcode
+        run: |
+          ./GithubActions_for_oF/pg/projectGenerator -o"./of" -p"osx" ./GithubActions_for_oF/testApp
+
+      #Building tesetApp
+      - name: Building testApp
+        run: |
+          cd ./GithubActions_for_oF/testApp
+          ls -la
+          xcodebuild -arch x86_64 -configuration Release -target testApp -project "testApp.xcodeproj"
+
+      #Codesign App
+      - name: Codesign with self-signed certificate
+        env:
+          #Get secrets stored in Github Action Secrets
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo $BUILD_CERTIFICATE_BASE64 | base64 --decode > certificate.p12
+          security create-keychain -p $KEYCHAIN_PASSWORD build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p $KEYCHAIN_PASSWORD build.keychain
+          security import certificate.p12 -k build.keychain -P $P12_PASSWORD -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $KEYCHAIN_PASSWORD build.keychain
+          /usr/bin/codesign --force -s "of-cert" ./BreathShow/BreathShowApp/bin/BreathShowApp.app/Contents/MacOS/BreathShowApp -v
+          /usr/bin/codesign -dv ./BreathShow/BreathShowApp/bin/BreathShowApp.app
+
+      # Make tar file to maintain file permission
+      # Github uses zip compression to create artifacts as default. However with it, we can't execute resulted app after downloading due to permission error
+      - name: 'Tar files'
+        run: tar -cvf ./testApp.app.tar ./GithubActions_for_oF/testApp/bin
+
+      # Uncomment this section to see compiled app in actions page (not in release)
+      # Upload executable binaries to GitHub (without release)
+      # - name: Uploading artifacts
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: BreathShowApp
+      #     path: ./BreathShowApp.app.tar
+
+      #Create Release
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          name: "testApp ${{github.ref_name}}"
+          artifacts: "./testApp.app.tar"
+          #bodyFile: "README.md"
