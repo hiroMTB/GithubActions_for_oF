@@ -8,6 +8,9 @@ on:
     tags:
     - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
 
+env:
+  ccache: ccache
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -37,6 +40,11 @@ jobs:
           ref: master
           path: of
           submodules: true
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.11
+        with:
+          key: ${{ matrix.cfg.target }}-${{ matrix.cfg.opt }}
 
       - name: Download libs
         # continue-on-error: true
